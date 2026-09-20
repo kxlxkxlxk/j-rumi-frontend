@@ -9,14 +9,13 @@ export interface CropBox {
   h: number;
 }
 
-// 사진 위에 드래그로 네모를 그려서 "색상을 측정할 영역"을 고르는 아주 단순한
-// 크롭 도구예요. 별도 라이브러리 없이 순수 React + 마우스/터치 이벤트로만
-// 만들었어요 (이미지에 표시되는 크기 기준 좌표를, 실제 원본 사진 픽셀 좌표로
-// 환산해서 부모에게 알려줘요).
-//
-// 드래그 추적은 window 전체에 이벤트를 붙여서 처리해요 (엘리먼트 안쪽에만
-// 붙이면, 빠르게 드래그하다가 사진 바깥으로 살짝 벗어나는 순간 추적이
-// 끊기거나 어긋날 수 있어서, 그걸 방지하려고 이렇게 만들었어요).
+// 사진 위에 드래그로 네모를 그려서 "색상을 측정할 영역"을 고르는 크롭
+// 도구예요. 이전 버전은 바깥 div 기준으로 마우스 좌표를 직접 계산했는데,
+// 그 계산이 실제 이미지 위치와 어긋나는 경우가 있었어요. 이번 버전은 그
+// 계산을 브라우저가 대신 해주는 네이티브 값(offsetX/offsetY -- "지금
+// 가리키고 있는 그 엘리먼트 안에서 몇 픽셀 위치인지"를 브라우저가 직접
+// 알려주는 값)을 <img> 태그에 직접 붙여서 쓰도록 바꿨어요. 이러면 테두리,
+// 스크롤, 레이아웃 미세 차이 같은 것 때문에 좌표가 어긋날 여지가 없어요.
 export function ImageCropBox({
   file,
   onCropChange,
@@ -26,16 +25,13 @@ export function ImageCropBox({
 }) {
   const [url, setUrl] = useState<string | null>(null);
   const [displayBox, setDisplayBox] = useState<CropBox | null>(null);
-  const wrapRef = useRef<HTMLDivElement>(null);
   const naturalRef = useRef<{ w: number; h: number } | null>(null);
-  const displaySizeRef = useRef<{ w: number; h: number } | null>(null);
 
   useEffect(() => {
     const objUrl = URL.createObjectURL(file);
     setUrl(objUrl);
     setDisplayBox(null);
     naturalRef.current = null;
-    displaySizeRef.current = null;
     onCropChange(null);
     return () => URL.revokeObjectURL(objUrl);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -44,65 +40,52 @@ export function ImageCropBox({
   function handleImgLoad(e: React.SyntheticEvent<HTMLImageElement>) {
     const img = e.currentTarget;
     naturalRef.current = { w: img.naturalWidth, h: img.naturalHeight };
-    displaySizeRef.current = { w: img.clientWidth, h: img.clientHeight };
   }
 
-  function posFromClient(clientX: number, clientY: number) {
-    const rect = wrapRef.current!.getBoundingClientRect();
-    return {
-      x: Math.min(Math.max(clientX - rect.left, 0), rect.width),
-      y: Math.min(Math.max(clientY - rect.top, 0), rect.height),
-    };
+  function clamp(v: number, max: number) {
+    return Math.min(Math.max(v, 0), max);
   }
 
-  function handlePointerDown(e: React.PointerEvent) {
-    // 브라우저 기본 텍스트/이미지 드래그-선택 동작을 막아요 (안 막으면 크롭
-    // 박스랑 같이 브라우저 자체 선택 박스가 겹쳐 보여서 지저분해요).
+  function handlePointerDown(e: React.PointerEvent<HTMLImageElement>) {
+    // 브라우저 기본 이미지 드래그/선택 동작을 막아요.
     e.preventDefault();
+    const img = e.currentTarget;
+    img.setPointerCapture(e.pointerId);
 
-    // 화면에 실제로 이미지가 그려진 뒤의 크기를, 드래그를 시작하는 이
-    // 순간에 다시 한번 정확히 재보고 시작해요 (레이아웃이 로드 시점과
-    // 아주 살짝 달라졌을 가능성까지 없애기 위해서예요).
-    const imgEl = wrapRef.current?.querySelector("img");
-    if (imgEl) {
-      displaySizeRef.current = { w: imgEl.clientWidth, h: imgEl.clientHeight };
+    const startX = clamp(e.nativeEvent.offsetX, img.clientWidth);
+    const startY = clamp(e.nativeEvent.offsetY, img.clientHeight);
+    setDisplayBox({ x: startX, y: startY, w: 0, h: 0 });
+
+    function toBox(x: number, y: number) {
+      const cx = clamp(x, img.clientWidth);
+      const cy = clamp(y, img.clientHeight);
+      return {
+        x: Math.min(startX, cx),
+        y: Math.min(startY, cy),
+        w: Math.abs(cx - startX),
+        h: Math.abs(cy - startY),
+      };
     }
 
-    const start = posFromClient(e.clientX, e.clientY);
-    setDisplayBox({ x: start.x, y: start.y, w: 0, h: 0 });
-
     function handleMove(ev: PointerEvent) {
-      const pos = posFromClient(ev.clientX, ev.clientY);
-      setDisplayBox({
-        x: Math.min(start.x, pos.x),
-        y: Math.min(start.y, pos.y),
-        w: Math.abs(pos.x - start.x),
-        h: Math.abs(pos.y - start.y),
-      });
+      setDisplayBox(toBox(ev.offsetX, ev.offsetY));
     }
 
     function finish(ev: PointerEvent) {
-      window.removeEventListener("pointermove", handleMove);
-      window.removeEventListener("pointerup", finish);
-      window.removeEventListener("pointercancel", finish);
+      img.removeEventListener("pointermove", handleMove);
+      img.removeEventListener("pointerup", finish);
+      img.removeEventListener("pointercancel", finish);
 
-      const pos = posFromClient(ev.clientX, ev.clientY);
-      const box = {
-        x: Math.min(start.x, pos.x),
-        y: Math.min(start.y, pos.y),
-        w: Math.abs(pos.x - start.x),
-        h: Math.abs(pos.y - start.y),
-      };
-
+      const box = toBox(ev.offsetX, ev.offsetY);
       const natural = naturalRef.current;
-      const disp = displaySizeRef.current;
-      if (box.w < 8 || box.h < 8 || !natural || !disp) {
+      if (box.w < 8 || box.h < 8 || !natural) {
+        setDisplayBox(null);
         onCropChange(null);
         return;
       }
       setDisplayBox(box);
-      const scaleX = natural.w / disp.w;
-      const scaleY = natural.h / disp.h;
+      const scaleX = natural.w / img.clientWidth;
+      const scaleY = natural.h / img.clientHeight;
       onCropChange({
         x: Math.round(box.x * scaleX),
         y: Math.round(box.y * scaleY),
@@ -111,18 +94,14 @@ export function ImageCropBox({
       });
     }
 
-    window.addEventListener("pointermove", handleMove);
-    window.addEventListener("pointerup", finish);
-    window.addEventListener("pointercancel", finish);
+    img.addEventListener("pointermove", handleMove);
+    img.addEventListener("pointerup", finish);
+    img.addEventListener("pointercancel", finish);
   }
 
   return (
     <div>
-      <div
-        ref={wrapRef}
-        className="relative inline-block max-w-full touch-none select-none overflow-hidden rounded-lg border border-jerumi-200 bg-black/5"
-        onPointerDown={handlePointerDown}
-      >
+      <div className="relative inline-block max-w-full touch-none select-none overflow-hidden rounded-lg border border-jerumi-200 bg-black/5">
         {url && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -131,6 +110,7 @@ export function ImageCropBox({
             className="block max-w-full"
             draggable={false}
             onLoad={handleImgLoad}
+            onPointerDown={handlePointerDown}
           />
         )}
         {displayBox && (
