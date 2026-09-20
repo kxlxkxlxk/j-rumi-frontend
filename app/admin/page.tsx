@@ -119,7 +119,7 @@ function AdminDashboard({ password }: { password: string }) {
 
       <section className="mt-8 border-t border-jerumi-200 pt-6">
         <h2 className="text-sm font-semibold text-jerumi-600">새 색상 추가</h2>
-        <AddShadeForm tab={tab} password={password} onSaved={reload} />
+        <AddShadeForm key={tab} tab={tab} password={password} onSaved={reload} />
       </section>
 
       <section className="mt-10 border-t border-jerumi-200 pt-6">
@@ -381,6 +381,10 @@ function CardReferenceSection({ password }: { password: string }) {
   useEffect(() => {
     getCardReference(password).then((res) => {
       if (res.success) setCurrent(res.patches ?? null);
+      else {
+        setCurrent(null);
+        setError(res.message || "현재 상태를 확인하지 못했어요 (GitHub 연동 전이면 정상이에요)");
+      }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
