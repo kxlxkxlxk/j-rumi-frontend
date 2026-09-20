@@ -51,6 +51,9 @@ export function ImageCropBox({
   }
 
   function handlePointerDown(e: React.PointerEvent) {
+    // 이게 없으면 브라우저 기본 텍스트/이미지 드래그-선택 박스가 같이 뜨면서
+    // 화면이 지저분해 보여요 (크롭 기능 자체는 되지만 시각적으로 거슬려요).
+    e.preventDefault();
     (e.target as Element).setPointerCapture(e.pointerId);
     const pos = relativePos(e);
     draggingFrom.current = pos;
@@ -59,6 +62,7 @@ export function ImageCropBox({
 
   function handlePointerMove(e: React.PointerEvent) {
     if (!draggingFrom.current) return;
+    e.preventDefault();
     const pos = relativePos(e);
     const start = draggingFrom.current;
     setDisplayBox({
