@@ -227,6 +227,11 @@ function AddShadeForm({
   const [method, setMethod] = useState<"card" | "image">("card");
   const useCard = tab === "verified" || method === "card";
   const maxPhotos = useCard ? 5 : 1;
+  // "이미지에서 색상만 추출" 방식은 이미 색상 부분만 크롭해서 올린다고
+  // 가정하고, 드래그로 영역을 고르는 과정 자체를 생략해요. 사진 전체를
+  // 그대로 보내면 서버에서 하이라이트/그림자를 자동으로 제외하고 평균
+  // 색상을 계산해요.
+  const needsCrop = useCard;
 
   const [photos, setPhotos] = useState<File[]>([]);
   const [crops, setCrops] = useState<(CropBox | null)[]>([]);
@@ -250,7 +255,9 @@ function AddShadeForm({
     setCrops([]);
   }
 
-  const allCropped = photos.length > 0 && crops.length === photos.length && crops.every((c) => c !== null);
+  const allCropped =
+    photos.length > 0 &&
+    (!needsCrop || (crops.length === photos.length && crops.every((c) => c !== null)));
 
   async function handleSubmit() {
     if (!brand.trim() || !name.trim()) {
@@ -258,7 +265,7 @@ function AddShadeForm({
       return;
     }
     if (!allCropped) {
-      setErrorMsg("모든 사진에서 색상 영역을 선택해주세요.");
+      setErrorMsg(needsCrop ? "모든 사진에서 색상 영역을 선택해주세요." : "사진을 선택해주세요.");
       return;
     }
     setSubmitting(true);
@@ -271,7 +278,9 @@ function AddShadeForm({
       verified: tab === "verified",
       useCard,
       files: photos,
-      crops: crops as CropBox[],
+      // 크롭이 필요 없는 방식(이미지에서 색상만 추출)이면 항상 null을
+      // 보내서 "사진 전체 사용"을 뜻하게 해요.
+      crops: needsCrop ? crops : photos.map(() => null),
     });
     setSubmitting(false);
     if (res.success) {
@@ -341,21 +350,32 @@ function AddShadeForm({
         className="text-sm"
       />
 
-      {photos.map((photo, i) => (
-        <div key={i}>
-          <p className="mb-1 text-xs font-medium text-jerumi-500">사진 {i + 1}/{photos.length}</p>
-          <ImageCropBox
-            file={photo}
-            onCropChange={(box) =>
-              setCrops((prev) => {
-                const next = [...prev];
-                next[i] = box;
-                return next;
-              })
-            }
-          />
-        </div>
-      ))}
+      {needsCrop
+        ? photos.map((photo, i) => (
+            <div key={i}>
+              <p className="mb-1 text-xs font-medium text-jerumi-500">사진 {i + 1}/{photos.length}</p>
+              <ImageCropBox
+                file={photo}
+                onCropChange={(box) =>
+                  setCrops((prev) => {
+                    const next = [...prev];
+                    next[i] = box;
+                    return next;
+                  })
+                }
+              />
+            </div>
+          ))
+        : photos.map((photo, i) => (
+            <div key={i} className="flex items-center gap-3 rounded-lg border border-jerumi-200 bg-jerumi-50 p-2">
+              <PhotoThumb file={photo} />
+              <p className="text-xs text-jerumi-500">
+                이 사진은 이미 색상 부분만 잘려있다고 보고, 전체 사진의 평균
+                색상을 그대로 써요 (하이라이트·그림자는 자동으로 제외돼요).
+                별도로 영역을 선택하실 필요 없어요.
+              </p>
+            </div>
+          ))}
 
       {errorMsg && <p className="text-sm text-red-600">{errorMsg}</p>}
       {resultMsg && <p className="text-sm text-green-600">{resultMsg}</p>}
@@ -369,6 +389,20 @@ function AddShadeForm({
       </button>
     </div>
   );
+}
+
+function PhotoThumb({ file }: { file: File }) {
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const objUrl = URL.createObjectURL(file);
+    setUrl(objUrl);
+    return () => URL.revokeObjectURL(objUrl);
+  }, [file]);
+
+  if (!url) return null;
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={url} alt="업로드한 사진" className="h-16 w-16 shrink-0 rounded object-cover" />;
 }
 
 function CardReferenceSection({ password }: { password: string }) {

@@ -78,7 +78,8 @@ export async function addShade(params: {
   verified: boolean;
   useCard: boolean;
   files: File[];
-  crops: Array<{ x: number; y: number; w: number; h: number }>;
+  // 항목이 null이면 "크롭 없이 사진 전체 사용"을 뜻해요 (이미지만 추출 방식).
+  crops: Array<{ x: number; y: number; w: number; h: number } | null>;
 }): Promise<AddShadeResult> {
   const fd = new FormData();
   fd.append("brand", params.brand);
